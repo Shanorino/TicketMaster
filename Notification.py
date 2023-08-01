@@ -39,5 +39,11 @@ def send_email(address, title, content):
     except Exception as e:
         print("Error sending email:", e)
 
+
+def periodic_send_email(scheduler, recipient, subject, body, period_in_second):
+    send_email(recipient, subject, body)
+    scheduler.enter(period_in_second, 1, periodic_send_email, (scheduler, recipient, subject, body))
+
+
 # Example usage:
 # send_email("laozishixs@gmail.com", "Test Email", "This is a test email sent from Python!")

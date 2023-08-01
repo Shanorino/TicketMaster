@@ -13,8 +13,11 @@ import tools
 import argparse
 import requests
 from requests import session
-from Notification import send_email
+import Notification as notification
 import http.cookiejar
+import sched
+import time
+import random
 
 
 class DaMaiTicket:
@@ -29,7 +32,7 @@ class DaMaiTicket:
         self.item_id: int = 477013  # 商品id
         self.viewer: list = ['viewer1']  # 在大麦网已填写的观影人
         self.buy_nums: int = 1  # 购买影票数量, 需与观影人数量一致
-        self.ticket_price: int = 500 * 100  # 购买指定票价
+        self.ticket_price: int = 150 * 100  # 购买指定票价
 
     def step1_get_order_info(self, item_id, commodity_param, ticket_price=None):
         """
@@ -316,13 +319,30 @@ class DaMaiTicket:
         self.step3_submit_order(submit_order_info, self.viewer, seat_info)
 
 
+def check_ticket_and_notify():
+    a = DaMaiTicket()
+    ticket_info, filtered_offers, filtered_groups = a.step1_get_order_info(a.item_id, None,
+                                                                           ticket_price=a.ticket_price)
+    if len(filtered_offers) > 0:
+        notification.send_email("laozishixs@gmail.com", "The Weeknd tickets are found! Order now?",
+                                f"Ticket info: {filtered_groups}")
+
+
+def schedule_check_and_notify(scheduler):
+    check_ticket_and_notify()
+    # Generate a random interval between 4 and 5 minutes (in seconds)
+    interval = random.randint(240, 300)
+    scheduler.enter(interval, 1, schedule_check_and_notify, (scheduler,))
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='manual to this script')
     parser.add_argument('--mode', type=str, default='account', required=False,
                         help='account: account login， QR: Scan QR code login')
     args = parser.parse_args()
-    a = DaMaiTicket()
-    ticket_info, filtered_offers, filtered_groups = a.step1_get_order_info(a.item_id, None,
-                                                                  ticket_price=a.ticket_price)
-    send_email("laozishixs@gmail.com", "The Weeknd tickets are found! Order now?", f"Ticket info: {filtered_groups}")
+
+    scheduler = sched.scheduler(time.time, time.sleep)
+    # Schedule the initial execution of check_ticket_and_notify
+    scheduler.enter(0, 1, schedule_check_and_notify, (scheduler,))
+    scheduler.run()
     # a.run()
