@@ -13,20 +13,23 @@ import tools
 import argparse
 import requests
 from requests import session
+from Notification import send_email
+import http.cookiejar
 
 
 class DaMaiTicket:
     def __init__(self):
         # 登录信息
+        self.cookie_jar = None
         self.login_cookies = {}
         self.session = session()
-        self.login_id: str = 'account'  # 大麦网登录账户名
-        self.login_password: str = 'password'  # 大麦网登录密码
+        self.login_id: str = 'laozishixs@gmail.com'  # 大麦网登录账户名
+        self.login_password: str = 'Y9gPHgz6'  # 大麦网登录密码
         # 以下为抢票必须的参数
-        self.item_id: int = 610820299671  # 商品id
+        self.item_id: int = 477013  # 商品id
         self.viewer: list = ['viewer1']  # 在大麦网已填写的观影人
         self.buy_nums: int = 1  # 购买影票数量, 需与观影人数量一致
-        self.ticket_price: int = 180  # 购买指定票价
+        self.ticket_price: int = 500 * 100  # 购买指定票价
 
     def step1_get_order_info(self, item_id, commodity_param, ticket_price=None):
         """
@@ -40,7 +43,8 @@ class DaMaiTicket:
             print('-' * 10, '票价未填写, 请选择票价', '-' * 10)
             return False
 
-        commodity_param.update({'itemId': item_id})
+        # commodity_param.update({'itemId': item_id})
+        # subChannelId = 1
         headers = {
             'authority': 'detail.damai.cn',
             'sec-ch-ua': '" Not A;Brand";v="99", "Chromium";v="98", "Google Chrome";v="98"',
@@ -51,22 +55,26 @@ class DaMaiTicket:
             'sec-fetch-site': 'same-origin',
             'sec-fetch-mode': 'no-cors',
             'sec-fetch-dest': 'script',
-            'referer': 'https://detail.damai.cn/item.htm',
+            # 'referer': 'https://detail.damai.cn/item.htm',
             'accept-language': 'zh,en;q=0.9,en-US;q=0.8,zh-CN;q=0.7',
         }
 
-        response = self.session.get('https://detail.damai.cn/subpage', headers=headers, params=commodity_param)
-        ticket_info = json.loads(response.text.replace('null(', '').replace('__jp0(', '')[:-1])
-        all_ticket_sku = ticket_info['perform']['skuList']
-        sku_id_sequence = 0
-        sku_id = ''
-        if ticket_price:
-            for index, sku in enumerate(all_ticket_sku):
-                if sku.get('price') and float(sku.get('price')) == float(ticket_price):
-                    sku_id_sequence = index
-                    sku_id = sku.get('skuId')
-                    break
-        return ticket_info, sku_id_sequence, sku_id
+        response = self.session.get(f"https://availability.ticketmaster.eu/api/v2/TM_DE/availability/{item_id}",
+                                    headers=headers, params=commodity_param)
+        ticket_info = json.loads(response.text)
+        filtered_offers, filtered_groups = tools.filter_offers_by_price(ticket_info, self.ticket_price)
+        # ticket_info = json.loads(response.text.replace('null(', '').replace('__jp0(', '')[:-1])
+        # all_ticket_sku = ticket_info['perform']['skuList']
+        # sku_id_sequence = 0
+        # sku_id = ''
+        # if ticket_price:
+        #     for index, sku in enumerate(all_ticket_sku):
+        #         if sku.get('price') and float(sku.get('price')) == float(ticket_price):
+        #             sku_id_sequence = index
+        #             sku_id = sku.get('skuId')
+        #             break
+        #
+        return ticket_info, filtered_offers, filtered_groups
 
     def step2_click_buy_now(self, ex_params, sku_info):
         """
@@ -225,26 +233,28 @@ class DaMaiTicket:
             print('支付宝支付链接: ', buy_status.get('module').get('alipayWapCashierUrl'))
 
     def run(self):
-        if len(self.viewer) != self.buy_nums:
-            print('-' * 10, '购买数量与实际观演人数量不符', '-' * 10)
-            return
+        # if len(self.viewer) != self.buy_nums:
+        #     print('-' * 10, '购买数量与实际观演人数量不符', '-' * 10)
+        #     return
         if os.path.exists('cookies.pkl'):
             cookies = tools.load_cookies()
-            self.login_cookies.update(cookies)
-        elif 'account' == args.mode.lower():
-            self.login_cookies = tools.account_login('account', self.login_id, self.login_password)
+            self.cookie_jar = cookies  # .update(cookies)
         else:
-            self.login_cookies = tools.account_login('qr')
-
-        login_status = tools.check_login_status(self.login_cookies)
-
-        if not login_status:
-            print('-' * 10, '登录失败, 请检查登录账号信息。若使用保存的cookies，则删除cookies文件重新尝试', '-' * 10)
-            return
-        elif login_status and not os.path.exists('cookies.pkl'):
+            self.login_cookies = tools.account_login('account', self.login_id, self.login_password)
+        if not os.path.exists('cookies.pkl'):
             tools.save_cookies(self.login_cookies)
 
-        commodity_param, ex_params = tools.get_api_param()
+        # login_status = tools.check_login_status(self.login_cookies)
+        #
+        # if not login_status:
+        #     print('-' * 10, '登录失败, 请检查登录账号信息。若使用保存的cookies，则删除cookies文件重新尝试', '-' * 10)
+        #     return
+        # elif login_status and not os.path.exists('cookies.pkl'):
+        #     tools.save_cookies(self.login_cookies)
+        #
+        # commodity_param, ex_params = tools.get_api_param()
+
+        commodity_param = None
 
         submit_order_info = ''
         buy_serial_number = ''
@@ -312,4 +322,7 @@ if __name__ == '__main__':
                         help='account: account login， QR: Scan QR code login')
     args = parser.parse_args()
     a = DaMaiTicket()
-    a.run()
+    ticket_info, filtered_offers, filtered_groups = a.step1_get_order_info(a.item_id, None,
+                                                                  ticket_price=a.ticket_price)
+    send_email("laozishixs@gmail.com", "The Weeknd tickets are found! Order now?", f"Ticket info: {filtered_groups}")
+    # a.run()

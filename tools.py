@@ -17,14 +17,33 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
+import browser_cookie3
+
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-
+import time
+import random
+import http.cookiejar
 
 def save_cookies(login_cookies):
     """ 保存cookies """
     with open('cookies.pkl', 'wb') as fw:
         pickle.dump(login_cookies, fw)
+
+
+def save_cookies_new():
+    cj = browser_cookie3.chrome(domain_name='.ticketmaster.de')
+    cookies = []
+
+    for cookie in cj:
+        if cookie.domain == '.ticketmaster.de':
+            cookie_vars_dict = vars(cookie)
+            cookie_dict = {'name': cookie_vars_dict.pop('name'), 'value': cookie_vars_dict.pop('value')}
+            # cookie_dict['rest'] = cookie_dict.pop('_rest')
+            cookies.append(cookie_dict)
+
+    with open('cookies.pkl', 'wb') as f:
+        pickle.dump(cookies, f)
 
 
 def load_cookies():
@@ -37,6 +56,24 @@ def load_cookies():
         print('-' * 10, '加载cookies失败', '-' * 10)
         print(e)
 
+
+def load_cookies_new():
+    valid_cookie_attributes = {'version', 'name', 'value', 'port', 'port_specified',
+                               'domain', 'domain_specified', 'domain_initial_dot',
+                               'path', 'path_specified', 'secure', 'expires', 'discard',
+                               'comment', 'comment_url', 'rfc2109', 'rest'}
+
+    with open('cookies.pkl', 'rb') as f:
+        cookies = pickle.load(f)
+
+    cj = http.cookiejar.CookieJar()
+
+    for cookie_dict in cookies:
+        # Ignore any attributes not recognized by the Cookie constructor.
+        cookie_dict = {k: v for k, v in cookie_dict.items() if k in valid_cookie_attributes}
+        cookie = http.cookiejar.Cookie(**cookie_dict)
+        cj.set_cookie(cookie)
+    return cj
 
 def check_login_status(login_cookies):
     """ 检测是否登录成功 """
@@ -78,13 +115,21 @@ def account_login(login_type: str, login_id=None, login_password=None):
     :param login_type:  选择哪种方式进行登录
     :return:
     """
-    damai_title = '大麦网-全球演出赛事官方购票平台-100%正品、先付先抢、在线选座！'
+    # damai_title = '大麦网-全球演出赛事官方购票平台-100%正品、先付先抢、在线选座！'
 
-    login_url = 'https://passport.damai.cn/login'
-    option = webdriver.ChromeOptions()  # 默认Chrome浏览器
+    tm_title = 'Ticketmaster - Mein Konto'
+    login_url = 'https://www.ticketmaster.de/user/orders'
+    options = webdriver.ChromeOptions()  # 默认Chrome浏览器
     # 关闭开发者模式, window.navigator.webdriver 控件检测到你是selenium进入，若关闭会导致出现滑块并无法进入。
-    option.add_experimental_option('excludeSwitches', ['enable-automation'])
-    option.add_argument('--disable-blink-features=AutomationControlled')
+    options.add_experimental_option('excludeSwitches', ['enable-automation'])
+    options.add_argument(
+        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36")
+    options.add_argument('--disable-blink-features=AutomationControlled')
+    options.add_argument("--disable-extensions")
+    options.add_argument("--profile-directory=Default")
+    options.add_argument("--disable-plugins-discovery")
+    options.add_argument("--start-maximized")
+    options.add_argument("--incognito")
     # option.add_argument('headless')               # Chrome以后台模式进行，注释以进行调试
     # option.add_argument('window-size=1920x1080')  # 指定分辨率
     # option.add_argument('no-sandbox')             # 取消沙盒模式
@@ -97,23 +142,32 @@ def account_login(login_type: str, login_id=None, login_password=None):
     else:
         chromedriver = os.path.join(os.getcwd(), 'chromedriver_mac')
 
-    driver = webdriver.Chrome(chromedriver, options=option)
-    driver.set_page_load_timeout(60)
+    driver = webdriver.Chrome(chromedriver, options=options)
+    driver.set_page_load_timeout(10)
+    try:
+        driver.get("https://www.google.com")
+    except Exception:
+        print("intended timeout, please ignore.")
+    time.sleep(random.uniform(1, 3))
     driver.get(login_url)
+    time.sleep(random.uniform(3, 5))
     if login_type == 'account':
-        driver.switch_to.frame('alibaba-login-box')  # 切换内置frame，否则会找不到元素位置
-        driver.find_element_by_name('fm-login-id').send_keys(login_id)
-        driver.find_element_by_name('fm-login-password').send_keys(login_password)
-        driver.find_element_by_class_name('password-login').send_keys(Keys.ENTER)
-    WebDriverWait(driver, 180, 0.5).until(EC.title_contains(damai_title))
+        #     driver.switch_to.frame('alibaba-login-box')  # 切换内置frame，否则会找不到元素位置
+        driver.find_element_by_name('email_address').send_keys(login_id)
+        driver.find_element_by_name('password').send_keys(login_password)
+        # driver.find_element_by_class_name('password-login').send_keys(Keys.ENTER)
+        submit_button = driver.find_element_by_xpath('//button[@data-testid="login_button"]')
+        submit_button.click()
+
+    WebDriverWait(driver, 180, 0.5).until(EC.title_contains(tm_title))
 
     login_cookies = {}
-    if driver.title != damai_title:
+    if driver.title != tm_title:
         print('登录异常，请检查页面登录提示信息')
     for cookie in driver.get_cookies():
         login_cookies[cookie['name']] = cookie['value']
-    if check_login_status(login_cookies):
-        return login_cookies
+    # if check_login_status(login_cookies):
+    return login_cookies
 
 
 def get_api_param():
@@ -417,3 +471,15 @@ def pick_seat(valuable_seat, stand_id, buy_nums):
                 selected_seats.append({'seatId': sid, 'standId': stand_id})
                 if len(selected_seats) == buy_nums:
                     return selected_seats
+
+
+def filter_offers_by_price(ticket_info, given_price):
+    offers = ticket_info['offers']
+    groups = ticket_info['groups']
+    filtered_offers = [offer for offer in offers if offer['price']['total'] <= given_price]
+    filtered_groups = [group for group in groups if (group['offerIds'] in [[offer['id']] for offer in filtered_offers])]
+    # for group in data['groups']:
+    #     group['offerIds'] = [offer_id for offer_id in group['offerIds'] if any(offer['id'] == offer_id for offer in filtered_offers)]
+    return filtered_offers, filtered_groups
+
+
